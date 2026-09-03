@@ -93,6 +93,11 @@ class Settings(BaseSettings):
     routing_provider: str = "auto"
     osrm_url: str = "http://osrm:5000"
     routing_cache_path: str = "/app/.cache/routing.json"
+    # Where routing_provider="frozen" reads its precomputed matrix. Shipped in
+    # the image rather than mounted: it is a build artefact of a known OSRM
+    # graph, and a deployment whose travel times could change under it without
+    # a rebuild would be worse than one that cannot change them at all.
+    frozen_matrix_path: str = "/app/data/frozen-matrix.json"
     haversine_speed_kmh: float = 22.0
     haversine_detour_factor: float = 1.35
 

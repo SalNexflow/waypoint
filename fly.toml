@@ -1,0 +1,91 @@
+# Waypoint demo API on Fly.io.
+#
+# This is the cut-down deployment described in the hosting assessment: the
+# frozen travel matrix instead of a live OSRM, and inline solving instead of
+# Celery. Neither Redis nor a routing engine is deployed, which is what takes
+# the demo from roughly $70/month to roughly $7.
+#
+# What has to exist before `fly deploy`:
+#
+#   fly secrets set \
+#     DATABASE_URL='postgresql+asyncpg://USER:PASS@HOST/DB?ssl=require' \
+#     DISPATCH_TOKEN='...'
+#
+# The Neon connection string Neon gives you is a `postgresql://` URL for psql.
+# This app talks asyncpg, so the scheme has to be `postgresql+asyncpg://`, and
+# asyncpg spells the TLS parameter `ssl=require`, not `sslmode=require` --
+# passing Neon's string through unedited fails at the first query with a
+# confusing driver error rather than a connection error.
+#
+# Then, once per database:
+#
+#   fly ssh console -C "alembic upgrade head"
+#   fly ssh console -C "python -m data.seed --jobs 40 --technicians 8 \
+#       --day YYYY-MM-DD --seed 42 --truncate --no-snap"
+#
+# --no-snap matters: snapping coordinates onto roads needs OSRM, which this
+# deployment does not have. The seed's coordinates were already snapped when
+# the frozen matrix was built, so re-snapping would both fail and be pointless.
+
+app = "waypoint-dispatch-demo"
+primary_region = "sin"          # Singapore: closest region to the Klang Valley
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  # No OSRM in this deployment. "frozen" serves the precomputed matrix and
+  # raises UnroutableError on anything it does not cover, rather than falling
+  # back to haversine -- a silent downgrade would make TravelMatrix.source a
+  # lie, and that field is what makes the benchmark trustworthy.
+  ROUTING_PROVIDER = "frozen"
+  FROZEN_MATRIX_PATH = "/app/data/frozen-matrix.json"
+
+  TIMEZONE = "Asia/Kuala_Lumpur"
+  LOG_LEVEL = "INFO"
+
+  # The two Vercel frontends. Naming a non-local origin here is what flips
+  # `Settings.dispatch_auth_required` to True: from this moment the dispatcher
+  # routes answer 503 until DISPATCH_TOKEN is set as a secret. That is the
+  # intended behaviour -- the API refuses to serve an open console to the
+  # internet -- so set the secret before the first deploy, not after.
+  CORS_ORIGINS = "https://waypoint-console.vercel.app,https://waypoint-technician.vercel.app"
+
+  # One shared 1GB machine runs the whole API. The measured 747MB peak was
+  # four workers on a full 80-job day; two workers on a 40-job demo day sits
+  # far below that, and the benchmark shows a 5-second solve already beating
+  # both baselines on jobs done.
+  SOLVER_WORKERS = "2"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+
+  # Not scaling to zero. It would take the bill to nearly nothing, but the
+  # first visitor would then wait through a cold start before anything
+  # rendered, and a demo link gets clicked once.
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "requests"
+    # A solve occupies the machine for its whole time limit. Queueing several
+    # behind one 1GB machine is how it gets OOM-killed, so the limits are low
+    # on purpose.
+    soft_limit = 4
+    hard_limit = 8
+
+[[http_service.checks]]
+  # /health is the liveness check and touches nothing. /health/db would fail
+  # until migrations run, which would stop the machine ever coming up healthy
+  # enough to run them from.
+  grace_period = "20s"
+  interval = "30s"
+  method = "GET"
+  path = "/health"
+  timeout = "5s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1gb"

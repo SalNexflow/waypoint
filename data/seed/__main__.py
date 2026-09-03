@@ -118,16 +118,18 @@ def summarise(inst: SeedInstance) -> str:
     return "\n".join(lines)
 
 
-async def _persist(inst: SeedInstance, truncate: bool) -> None:
+async def _persist(inst: SeedInstance, truncate: bool, jobs_only: bool = False) -> None:
     # Imported lazily so --dry-run works without a reachable database.
     from api.db import SessionFactory
     from data.seed.persist import counts, persist_instance, verify_roundtrip
 
     async with SessionFactory() as session:
-        ids = await persist_instance(session, inst, truncate=truncate)
+        ids = await persist_instance(
+            session, inst, truncate=truncate, jobs_only=jobs_only
+        )
         await session.commit()
 
-        problems = await verify_roundtrip(session, inst)
+        problems = await verify_roundtrip(session, inst, ids["jobs"])
         if problems:
             print("\nROUND-TRIP CHECK FAILED", file=sys.stderr)
             for p in problems:
@@ -159,6 +161,10 @@ def main(argv: list[str] | None = None) -> int:
                    help="YYYY-MM-DD (default: today)")
     p.add_argument("--orphan-jobs", type=int, default=0,
                    help="extra jobs requiring a skill nobody has")
+    p.add_argument("--jobs-only", action="store_true",
+                   help="add only this day's jobs, reusing the technicians and "
+                        "depots already in the database. For seeding a run of "
+                        "days that one team works.")
     p.add_argument("--truncate", action="store_true",
                    help="clear existing domain data first")
     p.add_argument("--dry-run", action="store_true",
@@ -219,7 +225,7 @@ def main(argv: list[str] | None = None) -> int:
         print("\n(dry run, nothing written)")
         return 0
 
-    asyncio.run(_persist(inst, args.truncate))
+    asyncio.run(_persist(inst, args.truncate, args.jobs_only))
     return 0
 
 

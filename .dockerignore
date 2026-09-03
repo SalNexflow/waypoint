@@ -1,0 +1,38 @@
+# The build context is uploaded in full before the first line of the
+# Dockerfile runs. Without this file that means ~700MB of routing graph and
+# virtualenv on every build -- slow with a local daemon, and genuinely
+# expensive when the daemon is a remote builder.
+
+.git
+.gitignore
+
+# Secrets, never in an image.
+.env
+.env.local
+.env.*.local
+
+# The routing graph. The frozen matrix in data/ is what a deployed image
+# needs; the graph itself is only used to build that file.
+osrm-data/
+*.osm.pbf
+*.osrm*
+
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.cache/
+
+# The frontends have their own images and their own build contexts.
+web/
+mobile/
+site/
+screens/
+
+# Technician-uploaded photos live on a volume, not in the image.
+data/photos/
+
+*.md
+!README.md

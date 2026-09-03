@@ -51,6 +51,9 @@ services:
 
   api:
     build: .
+    # --reload lives here, not in the Dockerfile: it is only meaningful
+    # alongside the bind mounts below, which only exist in development.
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
     # CP-SAT holds a full copy of its search state PER WORKER. On 80 jobs /
     # 15 technicians with 8 workers that was enough to exhaust Docker's whole
     # allocation and get every container in this stack OOM-killed -- including
@@ -102,6 +105,7 @@ services:
       - ./worker:/app/worker
       - ./dispatch:/app/dispatch
       - ./data:/app/data
+      - ./scripts:/app/scripts
       - ./tests:/app/tests
       # Completion photos. A NAMED volume, not a bind mount: these are
       # written by the container and never edited by hand, and a bind

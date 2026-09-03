@@ -4,3 +4,4 @@ next-env.d.ts
 
 # playwright, installed ad hoc for UI verification
 test-results/
+.vercel

@@ -22,9 +22,13 @@ COPY bench ./bench
 COPY worker ./worker
 COPY dispatch ./dispatch
 COPY data ./data
+COPY scripts ./scripts
 COPY tests ./tests
 COPY pytest.ini .
 
 EXPOSE 8000
 
-CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+# Production shape: no --reload. The dev loop gets --reload from the compose
+# file instead, alongside the bind mounts that make it useful -- an image that
+# watches for source changes it can never receive is just a slower image.
+CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]

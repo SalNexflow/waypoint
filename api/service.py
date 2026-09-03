@@ -72,6 +72,7 @@ async def build_problem_for(
         settings.routing_provider,
         osrm_url=settings.osrm_url,
         cache_path=settings.routing_cache_path,
+        frozen_path=settings.frozen_matrix_path,
         speed_kmh=settings.haversine_speed_kmh,
         detour_factor=settings.haversine_detour_factor,
     )

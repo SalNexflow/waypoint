@@ -11,7 +11,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from geoalchemy2.elements import WKTElement
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.tables import Assignment, Depot, Job, SolveRun, Technician
@@ -55,19 +55,47 @@ async def persist_instance(
     inst: SeedInstance,
     *,
     truncate: bool = False,
+    jobs_only: bool = False,
 ) -> dict[str, dict[str, int]]:
     """Insert an instance and return {kind: {ref: database_id}}.
 
     The caller commits. This function does not, so a seed can be composed
     into a larger transaction (the benchmark harness will want exactly that).
+
+    `jobs_only` adds this instance's jobs to the technicians and depots that
+    are already there, instead of creating another set. Seeding a second day
+    without it gives you a second fleet -- eight more technicians who happen
+    to share the names of the first eight -- because nothing in a generated
+    instance is keyed on anything stable enough to upsert against. It exists
+    for the one case that needs it: filling a demo with a run of days that a
+    single team works.
     """
     if truncate:
         await truncate_all(session)
 
+    if jobs_only:
+        existing_techs = (
+            (await session.execute(select(Technician).order_by(Technician.id)))
+            .scalars()
+            .all()
+        )
+        if len(existing_techs) != len(inst.technicians):
+            raise ValueError(
+                f"jobs_only expects the database to already hold "
+                f"{len(inst.technicians)} technicians, found {len(existing_techs)}. "
+                "Seed the first day without --jobs-only."
+            )
+
     tz = ZoneInfo(inst.timezone)
 
     depot_ids: dict[str, int] = {}
-    for d in inst.depots:
+    if jobs_only:
+        existing_depots = (
+            (await session.execute(select(Depot).order_by(Depot.id))).scalars().all()
+        )
+        for d, row in zip(inst.depots, existing_depots):
+            depot_ids[d.ref] = row.id
+    for d in [] if jobs_only else inst.depots:
         row = Depot(
             name=d.name,
             location=point(d.lat, d.lon),
@@ -78,7 +106,13 @@ async def persist_instance(
         depot_ids[d.ref] = row.id
 
     tech_ids: dict[str, int] = {}
-    for t in inst.technicians:
+    if jobs_only:
+        # Positional pairing, matching the generator's stable ref order. Safe
+        # because the same --seed and --technicians produce the same fleet in
+        # the same order; the length check above is what enforces that.
+        for t, row in zip(inst.technicians, existing_techs):
+            tech_ids[t.ref] = row.id
+    for t in [] if jobs_only else inst.technicians:
         row = Technician(
             name=t.name,
             skills=list(t.skills),
@@ -144,23 +178,45 @@ async def counts(session: AsyncSession) -> dict[str, int]:
     return out
 
 
-async def verify_roundtrip(session: AsyncSession, inst: SeedInstance) -> list[str]:
+async def verify_roundtrip(
+    session: AsyncSession,
+    inst: SeedInstance,
+    job_ids: dict[str, int] | None = None,
+) -> list[str]:
     """Read back what was written and check it survived the trip.
 
     Specifically checks that coordinates came back where they went in. If
     point() ever gets its lat/lon order wrong, this catches it immediately
     rather than at phase 3 when the travel matrix looks strange.
+
+    `job_ids` names the rows this seed just wrote. Without it the check reads
+    the five lowest job ids in the table, which is correct for a truncating
+    seed and wrong for an appending one -- those rows would belong to an
+    earlier day and be compared against this day's instance.
     """
     problems: list[str] = []
 
-    rows = (
-        await session.execute(
-            text(
-                "SELECT customer, ST_Y(location::geometry) AS lat, "
-                "ST_X(location::geometry) AS lon FROM jobs ORDER BY id LIMIT 5"
+    if job_ids:
+        wanted = [job_ids[j.ref] for j in inst.jobs[:5] if j.ref in job_ids]
+        rows = (
+            await session.execute(
+                text(
+                    "SELECT customer, ST_Y(location::geometry) AS lat, "
+                    "ST_X(location::geometry) AS lon FROM jobs "
+                    "WHERE id = ANY(:ids) ORDER BY id"
+                ),
+                {"ids": wanted},
             )
-        )
-    ).all()
+        ).all()
+    else:
+        rows = (
+            await session.execute(
+                text(
+                    "SELECT customer, ST_Y(location::geometry) AS lat, "
+                    "ST_X(location::geometry) AS lon FROM jobs ORDER BY id LIMIT 5"
+                )
+            )
+        ).all()
 
     for row, expected in zip(rows, inst.jobs, strict=False):
         if abs(row.lat - expected.lat) > 1e-6 or abs(row.lon - expected.lon) > 1e-6:

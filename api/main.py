@@ -13,6 +13,7 @@ from api.auth import require_dispatcher
 from api.config import Settings, get_settings
 from api.db import engine, get_session
 from api.routes import dispatch, field, jobs, solve, technicians
+from routing.base import UnroutableError
 
 logging.basicConfig(level=get_settings().log_level)
 log = logging.getLogger("waypoint")
@@ -76,6 +77,28 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.exception_handler(UnroutableError)
+async def _unroutable(request, exc: UnroutableError) -> JSONResponse:
+    """Turn an uncoverable travel matrix into an answer, not a 500.
+
+    This is the deliberate failure mode of a frozen-matrix deployment: asked
+    about a location it has no road times for, it refuses rather than
+    substituting an approximation and quietly ruining the provenance of every
+    figure in the result. That decision is only worth anything if the reason
+    reaches the person looking at the screen -- a bare "Internal Server Error"
+    tells a dispatcher nothing and tells them to file a bug.
+
+    503 rather than 400: the request is not malformed, the service is
+    genuinely unable to answer it in its current configuration, and the fix
+    (rebuild the matrix, or point at a live OSRM) is on the server side.
+    """
+    log.warning("travel matrix could not cover the request: %s", exc)
+    return JSONResponse(
+        status_code=503,
+        content={"detail": str(exc), "error": "unroutable"},
+    )
+
 
 # Dispatcher-side routers, all behind one shared token.
 #
@@ -188,6 +211,7 @@ async def health_routing(
             settings.routing_provider,
             osrm_url=settings.osrm_url,
             cache_path=settings.routing_cache_path,
+            frozen_path=settings.frozen_matrix_path,
             speed_kmh=settings.haversine_speed_kmh,
             detour_factor=settings.haversine_detour_factor,
         )
@@ -206,10 +230,23 @@ async def health_routing(
         "reportable": reportable,
         "cache": provider.cache.stats if hasattr(provider, "cache") else {},
     }
+    # A frozen matrix reports the provenance of the pairs inside it, so it is
+    # reportable when it was built from OSRM. Surface what it was built from --
+    # the whole risk of a precomputed deployment is that it silently ages.
+    inner = getattr(provider, "inner", None)
+    bundle = getattr(inner, "bundle", None)
+    if bundle is not None:
+        body["frozen"] = {
+            "pairs": bundle.size,
+            "built_at": bundle.built_at,
+            "graph": bundle.graph,
+        }
+
     if not reportable:
         body["warning"] = (
-            "Using the haversine fallback. Travel times are optimistic by "
-            "roughly a third; no figure derived from them is a result."
+            f"Travel times come from {provider.source}, not OSRM. They are "
+            "optimistic by roughly a third; no figure derived from them is a "
+            "result."
         )
     return JSONResponse(content=body)
 

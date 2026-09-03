@@ -22,10 +22,29 @@ const DayMap = dynamic(() => import("@/components/DayMap"), {
   loading: () => <div className="map-loading">loading map…</div>,
 });
 
-const DEFAULT_DAY = "2026-09-03";
+// The dispatch day, in the timezone the dispatch day is defined in.
+//
+// Not the browser's date: a dispatcher in another timezone would otherwise
+// open on a day the API does not consider today, see an empty board, and
+// conclude the schedule had been lost. And not `new Date()` rendered
+// directly either -- this component server-renders before it hydrates, so a
+// value that depends on where the code is running produces a hydration
+// mismatch. Pinning the zone makes both sides compute the same string.
+const DISPATCH_TZ = "Asia/Kuala_Lumpur";
+
+function dispatchToday(now: Date = new Date()): string {
+  // en-CA formats as YYYY-MM-DD, which is what every date input and every
+  // API route here expects.
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: DISPATCH_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(now);
+}
 
 export default function Page() {
-  const [day, setDay] = useState(DEFAULT_DAY);
+  const [day, setDay] = useState(dispatchToday);
   const [result, setResult] = useState<SolveResult | null>(null);
   const [previous, setPrevious] = useState<SolveMetrics | null>(null);
   const [selectedTech, setSelectedTech] = useState<string | null>(null);
