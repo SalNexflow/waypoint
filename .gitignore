@@ -1,0 +1,37 @@
+# --- Secrets ---
+# Real credentials live here. .env.example is the committed template.
+.env
+.env.local
+.env.*.local
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+
+# --- Field completion photos (field phase 7) ---
+# Technician-uploaded JPEGs. In compose these live on a named volume; running
+# the API outside a container writes them here instead. Customer premises,
+# never in version control. api/photos.py recreates the directory on demand.
+data/photos/
+
+# --- OSRM data (phase 3) - multi-GB, never commit ---
+osrm-data/
+*.osm.pbf
+*.osrm*
+.cache/
+
+# --- Node / Next ---
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+next-env.d.ts
+
+# --- Tooling output ---
+.vercel
+test-results/
+lighthouse-report.json

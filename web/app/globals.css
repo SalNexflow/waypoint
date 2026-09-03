@@ -1,0 +1,220 @@
+:root {
+  --bg: #f4f4f5;
+  --panel: #ffffff;
+  --line: #d4d4d8;
+  --ink: #18181b;
+  --muted: #71717a;
+  --ok: #16a34a;
+  --bad: #dc2626;
+  --warn: #ca8a04;
+  --accent: #2563eb;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0; padding: 0; height: 100%;
+  background: var(--bg); color: var(--ink);
+  font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+button {
+  font: inherit; cursor: pointer;
+  border: 1px solid var(--accent); background: var(--accent); color: #fff;
+  padding: 6px 14px; border-radius: 6px;
+}
+button:disabled { opacity: .5; cursor: not-allowed; }
+button.ghost { background: transparent; color: var(--ink); border-color: var(--line); }
+
+input[type="text"], input[type="date"], .dispatch-input input {
+  font: inherit; padding: 6px 10px;
+  border: 1px solid var(--line); border-radius: 6px; background: #fff;
+}
+
+.shell { display: flex; flex-direction: column; height: 100vh; }
+
+/* --- top bar --- */
+.topbar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 16px; background: var(--panel);
+  border-bottom: 1px solid var(--line); flex-wrap: wrap;
+}
+.topbar h1 { font-size: 17px; margin: 0 8px 0 0; letter-spacing: -.01em; }
+
+.status { display: flex; gap: 18px; margin-left: auto; flex-wrap: wrap; }
+.stat { display: flex; flex-direction: column; line-height: 1.25; }
+.stat .k { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.stat .v { font-weight: 600; font-variant-numeric: tabular-nums; }
+.stat em { font-style: normal; margin-left: 5px; font-size: 12px; }
+.up { color: var(--ok); }
+.down { color: var(--bad); }
+.ok { color: var(--ok); }
+.bad { color: var(--bad); }
+.warn { color: var(--warn); }
+
+/* --- banners --- */
+.banner {
+  padding: 9px 16px; display: flex; align-items: center; gap: 12px;
+  border-bottom: 1px solid var(--line); font-size: 13px;
+}
+.banner.error { background: #fef2f2; color: #991b1b; }
+.banner.preview { background: #eff6ff; color: #1e3a8a; }
+
+/* Who to phone if this move is applied. Listed, not just counted -- a
+   dispatcher cannot judge "3 customer calls" without knowing which three. */
+.calls {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.6;
+  opacity: 0.85;
+}
+.banner button { padding: 3px 10px; font-size: 12px; }
+
+/* --- body --- */
+.body { flex: 1; display: flex; min-height: 0; }
+.map { flex: 1; position: relative; }
+.map-loading {
+  display: grid; place-items: center; height: 100%;
+  color: var(--muted); background: #e5e7eb;
+}
+
+.panel {
+  width: 320px; background: var(--panel); border-left: 1px solid var(--line);
+  overflow-y: auto; padding: 0 0 16px;
+}
+.panel header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 14px; border-bottom: 1px solid var(--line);
+  position: sticky; top: 0; background: var(--panel);
+}
+.panel h3 { margin: 0; font-size: 14px; display: flex; align-items: center; gap: 8px; }
+.panel header button {
+  background: none; border: none; color: var(--muted);
+  font-size: 20px; line-height: 1; padding: 0 4px;
+}
+.panel dl { margin: 0; padding: 12px 14px; display: grid; grid-template-columns: 90px 1fr; gap: 6px 10px; }
+.panel dt { color: var(--muted); font-size: 12px; }
+.panel dd { margin: 0; font-variant-numeric: tabular-nums; }
+.panel .hint { padding: 0 14px; color: var(--muted); font-size: 12px; }
+
+.unassigned { list-style: none; margin: 0; padding: 0; }
+.unassigned li { padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.unassigned .reason {
+  display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 10px;
+  background: #fef3c7; color: #92400e; font-size: 11px;
+}
+.unassigned p { margin: 5px 0 0; color: var(--muted); font-size: 12px; }
+
+.swatch { width: 11px; height: 11px; border-radius: 3px; display: inline-block; flex: none; }
+
+/* --- timeline --- */
+.bottom {
+  border-top: 1px solid var(--line); background: var(--panel);
+  max-height: 40vh; overflow-y: auto;
+}
+.timeline { padding: 6px 0 10px; }
+.tl-head, .tl-row { display: flex; align-items: stretch; }
+.tl-head { height: 20px; color: var(--muted); font-size: 11px; }
+.tl-name {
+  width: 210px; flex: none; display: flex; align-items: center; gap: 8px;
+  padding: 4px 12px; background: none; border: none; color: inherit;
+  text-align: left; border-radius: 0;
+}
+button.tl-name { cursor: pointer; }
+button.tl-name:hover { background: #f4f4f5; }
+.tl-name .who { display: flex; flex-direction: column; line-height: 1.25; min-width: 0; }
+.tl-name small { color: var(--muted); font-size: 11px; }
+.tl-track { position: relative; flex: 1; height: 34px; margin-right: 14px; }
+.tl-hour { position: absolute; top: 0; transform: translateX(-50%); }
+.tl-row { border-top: 1px solid #f4f4f5; }
+.tl-row.dim { opacity: .35; }
+.tl-row.target { background: #eff6ff; outline: 2px dashed var(--accent); outline-offset: -2px; }
+.tl-shift {
+  position: absolute; top: 6px; height: 22px;
+  background: #f4f4f5; border-radius: 3px;
+}
+.tl-wait {
+  position: absolute; top: 12px; height: 10px;
+  background: repeating-linear-gradient(45deg, #e4e4e7, #e4e4e7 3px, #fafafa 3px, #fafafa 6px);
+  border-radius: 2px;
+}
+.tl-job {
+  position: absolute; top: 6px; height: 22px; border-radius: 3px;
+  color: #fff; font-size: 10px; display: flex; align-items: center;
+  padding: 0 4px; overflow: hidden; cursor: grab; white-space: nowrap;
+}
+.tl-job:active { cursor: grabbing; }
+.tl-hint { padding: 4px 16px; color: var(--accent); font-size: 12px; margin: 0; }
+.empty { padding: 20px; color: var(--muted); text-align: center; }
+
+/* --- dispatch --- */
+.dispatch { padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.dispatch-input { display: flex; gap: 8px; }
+.dispatch-input input { flex: 1; }
+.dispatch-warn { margin: 8px 0 0; font-size: 12px; color: var(--warn); }
+.dispatch-error { margin: 8px 0 0; font-size: 13px; color: var(--bad); }
+.dispatch-change, .dispatch-preview {
+  margin-top: 10px; padding: 10px 12px;
+  border: 1px solid var(--line); border-radius: 8px; background: #fafafa;
+}
+.dispatch-change h4, .dispatch-preview h4 { margin: 0 0 8px; font-size: 13px; }
+.dispatch-change table { border-collapse: collapse; font-size: 12px; }
+.dispatch-change th {
+  text-align: left; padding: 2px 14px 2px 0; color: var(--muted); font-weight: 500;
+}
+.dispatch-change td { padding: 2px 0; font-variant-numeric: tabular-nums; }
+.dispatch-actions { display: flex; gap: 8px; margin-top: 10px; }
+.preview-stats { display: flex; gap: 20px; flex-wrap: wrap; font-size: 13px; }
+.moves { margin: 8px 0 0; padding-left: 18px; font-size: 12px; color: var(--muted); }
+
+
+/* --- technician access (field phase 2) --- */
+
+.navlink {
+  margin-left: auto; color: var(--accent); text-decoration: none;
+  font-weight: 600; font-size: 13px;
+}
+.navlink:hover { text-decoration: underline; }
+
+.codepanel {
+  display: flex; align-items: center; gap: 16px;
+  margin: 12px 16px; padding: 14px 18px;
+  background: var(--panel); border: 2px solid var(--accent); border-radius: 8px;
+}
+.codepanel-who { margin: 0 0 6px; font-size: 13px; }
+.codepanel-code {
+  margin: 0; font-size: 34px; font-weight: 700; letter-spacing: .10em;
+  font-family: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, monospace;
+  /* Selectable on purpose: the dispatcher may want to paste it into a
+     message rather than read it aloud. */
+  user-select: all;
+}
+.codepanel button { margin-left: auto; }
+
+.access { padding: 8px 16px 24px; overflow: auto; }
+.accesstable { width: 100%; border-collapse: collapse; background: var(--panel); }
+.accesstable th, .accesstable td {
+  text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line);
+}
+.accesstable th {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--muted); font-weight: 600;
+}
+.accesstable td { font-size: 14px; }
+.accesstable .muted { color: var(--muted); }
+.accesstable .actions { text-align: right; white-space: nowrap; }
+.accesstable .actions button + button { margin-left: 8px; }
+
+/* --- dispatcher unlock (field phase 10) --- */
+
+.unlock { max-width: 520px; margin: 48px auto; padding: 0 16px; }
+.unlock h2 { margin: 0 0 8px; font-size: 20px; }
+.unlock-why { margin: 0 0 12px; font-size: 14px; color: var(--muted); line-height: 1.5; }
+.unlock-why code { background: #e4e4e7; padding: 1px 4px; border-radius: 3px; }
+.unlock-cmd {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+  padding: 10px 12px; font-size: 12px; overflow-x: auto; margin: 0 0 16px;
+}
+.unlock form { display: flex; gap: 8px; }
+.unlock input { flex: 1; }

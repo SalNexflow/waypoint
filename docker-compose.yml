@@ -1,0 +1,298 @@
+# Waypoint - field service scheduling optimiser
+#
+#   docker compose up -d              db + redis + api      (fast, no downloads)
+#   docker compose --profile osrm up  adds OSRM             (phase 3, ~4GB)
+#
+# OSRM is defined but profile-gated: the full stack is visible here from day
+# one, without a multi-gigabyte download standing between you and a working
+# `compose up`.
+
+name: waypoint
+
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    # Display timezone only. timestamptz always stores an absolute instant, so
+    # this changes nothing about storage or what the app reads -- it just means
+    # `psql` shows 08:00 for an 08:00 Malaysia job instead of 00:00 UTC. Saves
+    # a recurring "why is this job at midnight" double-take.
+    command: >
+      postgres
+      -c timezone=Asia/Kuala_Lumpur
+      -c log_timezone=Asia/Kuala_Lumpur
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-waypoint}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-waypoint_dev_only}
+      POSTGRES_DB: ${POSTGRES_DB:-waypoint}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # -U matters: without it pg_isready checks the 'root' user and reports
+      # healthy while the app's user is still unavailable.
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-waypoint} -d ${POSTGRES_DB:-waypoint}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    # Inert until phase 8 (Celery broker). Here because the spec lists it in
+    # the compose stack and it costs ~10MB of RAM. Safe to delete until then.
+
+  api:
+    build: .
+    # CP-SAT holds a full copy of its search state PER WORKER. On 80 jobs /
+    # 15 technicians with 8 workers that was enough to exhaust Docker's whole
+    # allocation and get every container in this stack OOM-killed -- including
+    # the unrelated ones sharing the daemon. This caps the blast radius to
+    # this container: a runaway solve now dies alone and visibly.
+    mem_limit: 3g
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-waypoint}:${POSTGRES_PASSWORD:-waypoint_dev_only}@db:5432/${POSTGRES_DB:-waypoint}
+      TIMEZONE: ${TIMEZONE:-Asia/Kuala_Lumpur}
+      OSRM_URL: ${OSRM_URL:-http://osrm:5000}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      ROUTING_PROVIDER: ${ROUTING_PROVIDER:-auto}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # Browser origins allowed to call this API. Comma-separated. Add the
+      # dev machine's LAN address (http://192.168.x.x:3002) before testing
+      # on a real phone -- the phone is a different origin from localhost.
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000,http://localhost:3002,http://127.0.0.1:3002}
+      ACCESS_CODE_TTL_HOURS: ${ACCESS_CODE_TTL_HOURS:-24}
+      # Shared secret for every dispatcher-side route. Empty is allowed
+      # only while CORS_ORIGINS trusts nothing but localhost.
+      DISPATCH_TOKEN: ${DISPATCH_TOKEN:-}
+      # Completion photos live on a volume, not in Postgres and not in
+      # object storage -- see api/photos.py for why.
+      PHOTO_DIR: ${PHOTO_DIR:-/app/data/photos}
+      # Natural-language dispatch (phase 13). These were previously absent
+      # from this block, so LLM_PROVIDER and the API key never reached the
+      # container -- /dispatch/provider always reported "not set" no matter
+      # what .env said. Passed through explicitly rather than via env_file so
+      # the container's environment stays an enumerated list.
+      LLM_PROVIDER: ${LLM_PROVIDER:-deepseek}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
+      OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.1}
+      SOLVER_WORKERS: ${SOLVER_WORKERS:-4}
+    ports:
+      - "8000:8000"
+    volumes:
+      # Bind mount + uvicorn --reload: edit a .py on Windows, the container
+      # restarts. No rebuild in the inner loop.
+      - ./api:/app/api
+      - ./alembic:/app/alembic
+      - ./routing:/app/routing
+      - ./solver:/app/solver
+      - ./bench:/app/bench
+      - ./worker:/app/worker
+      - ./dispatch:/app/dispatch
+      - ./data:/app/data
+      - ./tests:/app/tests
+      # Completion photos. A NAMED volume, not a bind mount: these are
+      # written by the container and never edited by hand, and a bind
+      # mount would drop binary files into the working tree.
+      - photos:/app/data/photos
+    healthcheck:
+      # python -c rather than curl, so the slim image stays slim.
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+  worker:
+    build: .
+    # Solves run here, off the request thread. -c 2 because CP-SAT is itself
+    # multi-threaded (SOLVER_WORKERS=4 by default); running many Celery
+    # processes each spawning 4 solver threads would oversubscribe the box.
+    command: celery -A worker.main worker --loglevel=INFO -c 2
+    # Same reasoning as api: solves run here too.
+    mem_limit: 3g
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-waypoint}:${POSTGRES_PASSWORD:-waypoint_dev_only}@db:5432/${POSTGRES_DB:-waypoint}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      OSRM_URL: ${OSRM_URL:-http://osrm:5000}
+      ROUTING_PROVIDER: ${ROUTING_PROVIDER:-auto}
+      TIMEZONE: ${TIMEZONE:-Asia/Kuala_Lumpur}
+      # Natural-language dispatch (phase 13). These were previously absent
+      # from this block, so LLM_PROVIDER and the API key never reached the
+      # container -- /dispatch/provider always reported "not set" no matter
+      # what .env said. Passed through explicitly rather than via env_file so
+      # the container's environment stays an enumerated list.
+      LLM_PROVIDER: ${LLM_PROVIDER:-deepseek}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
+      OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.1}
+      SOLVER_WORKERS: ${SOLVER_WORKERS:-4}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    volumes:
+      - ./api:/app/api
+      - ./routing:/app/routing
+      - ./solver:/app/solver
+      - ./data:/app/data
+      - ./bench:/app/bench
+      - ./worker:/app/worker
+      - ./dispatch:/app/dispatch
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A worker.main inspect ping -d celery@$$HOSTNAME || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  web:
+    build: ./web
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      # Read by the browser, so it must be the host-visible URL, not the
+      # compose service name -- the API call happens on the user's machine.
+      NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE:-http://localhost:8000}
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./web/app:/app/app
+      - ./web/components:/app/components
+      - ./web/lib:/app/lib
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:3000',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 40s
+
+  mobile:
+    build: ./mobile
+    # Port 3002, not 3001: site/ already dev-scripts to 3001, and two Next
+    # apps fighting over one port is a five-minute confusion every time.
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      # Read by the browser, so it must be host-visible. On a real phone this
+      # has to be the dev machine's LAN address (http://192.168.x.x:8000) --
+      # localhost is the phone itself. api/main.py CORS allow_origins is still
+      # hardcoded to :3000 and has to learn about both before phase 10.
+      NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE:-http://localhost:8000}
+      # A caching service worker fights Next hot reload, so registration is
+      # off in dev. Set to 1 to check installability without a prod build.
+      NEXT_PUBLIC_ENABLE_SW: ${NEXT_PUBLIC_ENABLE_SW:-}
+    ports:
+      - "3002:3002"
+    volumes:
+      - ./mobile/app:/app/app
+      - ./mobile/components:/app/components
+      - ./mobile/lib:/app/lib
+      - ./mobile/public:/app/public
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:3002',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 40s
+
+  osrm:
+    profiles: ["osrm"]
+    # Docker Hub's osrm/osrm-backend stopped publishing in 2021 (last tag
+    # v5.25.0). Current releases live on GHCR, with tags qualified by arch and
+    # distro. Pinned to an exact version rather than :latest so a rebuild
+    # months from now produces the same graph.
+    image: ghcr.io/project-osrm/osrm-backend:v26.9.0-amd64-debian
+    # --max-table-size raises OSRM's default cap of 100 coordinates per table
+    # request. The largest planned instance is 80 jobs + 15 technician homes
+    # = 95, so the default would *just* fit and then break silently the first
+    # time the problem grew. 1000 is ample and costs nothing until used.
+    command: >
+      osrm-routed --algorithm mld --max-table-size 1000
+      /data/klang-valley.osrm
+    volumes:
+      - ./osrm-data:/data
+    ports:
+      - "5000:5000"
+    healthcheck:
+      # The image ships no wget, curl or nc -- but it does have bash, so the
+      # request goes over bash's /dev/tcp. This hits the same /table endpoint
+      # the solver uses and greps for a valid response, rather than merely
+      # checking that the port accepts connections: osrm-routed binds before
+      # its graph is usable, so a TCP check reports healthy too early.
+      #
+      # Single-quoted YAML below is deliberate. In a double-quoted scalar YAML
+      # expands the escapes itself, so \r\n becomes real control characters and
+      # printf sends a bare LF, which OSRM rejects. Single quotes pass the
+      # backslashes through to printf intact.
+      test:
+        - CMD
+        - bash
+        - -c
+        - 'exec 3<>/dev/tcp/localhost/5000 && printf "GET /table/v1/driving/101.7117,3.1578;101.7113,3.1466 HTTP/1.0\r\n\r\n" >&3 && grep -q ''"code":"Ok"'' <&3'
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # --- OSRM build pipeline (profile: build-osrm) ------------------------------
+  # Run via scripts/build_osrm.sh, which invokes these in order. They are
+  # compose services rather than raw `docker run` commands so that Compose
+  # resolves the ./osrm-data path -- Git Bash on Windows mangles absolute
+  # paths passed to `docker run -v`, and this sidesteps that entirely.
+
+  osm-crop:
+    profiles: ["build-osrm"]
+    image: debian:bookworm-slim
+    volumes:
+      - ./osrm-data:/data
+    # Klang Valley bounding box: left,bottom,right,top.
+    # Covers Klang (101.44) to Kajang (101.79) and Cyberjaya (2.92) to
+    # Setapak (3.21), with ~35km of margin so routes near the edge still find
+    # real roads rather than being forced into detours by a hard cut.
+    # Single line deliberately. A YAML ">" block folds lines into spaces ONLY
+    # while their indentation is uniform; one extra-indented line keeps its
+    # newline, which silently splits a shell command in two.
+    command: ["bash", "-c", "set -e; apt-get update -qq; apt-get install -y -qq --no-install-recommends osmium-tool; osmium extract -b 101.10,2.60,102.10,3.55 /data/malaysia.osm.pbf -o /data/klang-valley.osm.pbf --overwrite; ls -lh /data/klang-valley.osm.pbf"]
+
+  osrm-extract:
+    profiles: ["build-osrm"]
+    image: ghcr.io/project-osrm/osrm-backend:v26.9.0-amd64-debian
+    volumes:
+      - ./osrm-data:/data
+    command: osrm-extract -p /opt/car.lua /data/klang-valley.osm.pbf
+
+  osrm-partition:
+    profiles: ["build-osrm"]
+    image: ghcr.io/project-osrm/osrm-backend:v26.9.0-amd64-debian
+    volumes:
+      - ./osrm-data:/data
+    command: osrm-partition /data/klang-valley.osrm
+
+  osrm-customize:
+    profiles: ["build-osrm"]
+    image: ghcr.io/project-osrm/osrm-backend:v26.9.0-amd64-debian
+    volumes:
+      - ./osrm-data:/data
+    command: osrm-customize /data/klang-valley.osrm
+
+volumes:
+  pgdata:
+  photos:

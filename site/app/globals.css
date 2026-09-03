@@ -1,0 +1,111 @@
+@import "tailwindcss";
+
+/* Design tokens.
+   Paper, ink and a hairline grey carry the layout; four flat colours carry the
+   sections. Each accent comes in three strengths: the flat band colour, a
+   pale tint for highlights on paper, and a dark "ink" version that is the only
+   one ever used for text on a light background (all four clear 4.5:1).
+   The eight technician route colours are separate — they are copied from the
+   product UI (web/lib/api.ts ROUTE_COLOURS) so the hero reads as the same
+   software, and they are never used as page decoration. */
+@theme {
+  --color-paper: #fafaf9;
+  --color-surface: #ffffff;
+  --color-sunken: #f4f4f2;
+  --color-ink: #101113;
+  --color-ink-2: #3f434a;
+  --color-muted: #62676f;
+  --color-line: #e2e2de;
+  --color-line-strong: #cfcfc9;
+  --color-accent: #2563eb;
+  --color-accent-dark: #1d4ed8;
+
+  /* Band colours: flat, saturated, always with ink text on top. */
+  --color-amber: #f6c453;
+  --color-sky: #93cbe8;
+  --color-violet: #c3b2f0;
+  --color-rose: #f4a9c8;
+
+  /* Pale tints, for highlighted words and card washes on paper. */
+  --color-amber-tint: #fdeec4;
+  --color-sky-tint: #dcedf8;
+  --color-violet-tint: #e9e1fb;
+  --color-rose-tint: #fbdfec;
+
+  /* Text-safe versions of the same hues. */
+  --color-amber-ink: #8a5200;
+  --color-sky-ink: #0b5f86;
+  --color-violet-ink: #543bab;
+  --color-rose-ink: #a8266b;
+
+  /* On the dark benchmark panel, where the tints would disappear. */
+  --color-amber-bright: #fbbf24;
+  --color-sky-bright: #7dd3fc;
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", sans-serif;
+  --font-mono: var(--font-mono-plex), ui-monospace, "SFMono-Regular", Menlo,
+    monospace;
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Numbers in tables, stats and the timeline should not shift width. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* A visible, high-contrast focus ring everywhere, including on dark panels. */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.on-dark :focus-visible {
+  outline-color: #ffffff;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* The wash behind the hero and the closing call to action: a flat gradient,
+   no blobs. Two stops of colour resolving into paper so the sections that
+   follow start clean. */
+.wash {
+  background:
+    radial-gradient(90rem 40rem at 12% -10%, #cfe3fb 0%, rgba(207, 227, 251, 0) 60%),
+    radial-gradient(70rem 36rem at 78% 6%, #f7dcc4 0%, rgba(247, 220, 196, 0) 62%),
+    linear-gradient(168deg, #e4e7fa 0%, #eee6f7 34%, #faf3ec 68%, var(--color-paper) 100%);
+}
+
+/* Highlighted words in body copy, as on the reference: a tinted plate behind
+   the word rather than a coloured word, so contrast never depends on the hue. */
+.hl {
+  border-radius: 3px;
+  padding: 0.1em 0.32em;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}

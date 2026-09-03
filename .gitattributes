@@ -1,0 +1,18 @@
+# Normalise to LF in the repository.
+* text=auto eol=lf
+
+# These MUST be LF regardless of platform: they are executed inside Linux
+# containers. Checked out with CRLF on Windows, a shell script fails with the
+# famously unhelpful `bash: \r: command not found`, and a Dockerfile or an
+# entrypoint fails in stranger ways still.
+*.sh            text eol=lf
+Dockerfile      text eol=lf
+*.yml           text eol=lf
+*.yaml          text eol=lf
+alembic.ini     text eol=lf
+.env.example    text eol=lf
+
+# Binary: never touch, never diff.
+*.png           binary
+*.pbf           binary
+*.osrm*         binary

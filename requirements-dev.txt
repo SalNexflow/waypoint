@@ -1,0 +1,12 @@
+# Host-side test dependencies.
+#
+# tests/test_api.py runs OUTSIDE the containers, hitting the stack over HTTP,
+# because what it exercises is the wiring -- routes, serialisation, database
+# and solver agreeing. Everything else runs inside `api` via
+# `docker compose exec api python -m pytest` and needs nothing installed here.
+#
+#   python -m venv .venv
+#   .venv/Scripts/python -m pip install -r requirements-dev.txt   # Windows
+#   .venv/bin/python     -m pip install -r requirements-dev.txt   # macOS/Linux
+pytest==8.3.4
+httpx==0.28.1

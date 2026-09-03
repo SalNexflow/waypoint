@@ -1,0 +1,64 @@
+@import "tailwindcss";
+
+/* Design tokens.
+ *
+ * Calibrated for the stated constraint -- outdoors, in Malaysian sunlight,
+ * one-handed, sometimes gloved -- which rules out most of the defaults.
+ *
+ * Light, not dark: on a phone in direct sun the screen competes with ambient
+ * light, and a mostly-white screen wins that fight. A dark theme looks better
+ * indoors and is unreadable in a car park at 1pm.
+ *
+ * There is no low-contrast grey in here. --color-ink-soft is 10.4:1 on paper,
+ * which reads as "secondary" indoors and stays legible outdoors. The spec's
+ * own constraint ("no thin greys") and its Today-screen design ("everything
+ * after it is dimmed") contradict each other; this resolves in favour of the
+ * constraint. Hierarchy comes from size, weight and position instead.
+ */
+@theme {
+  --color-ground: #efeeec;
+  --color-paper: #ffffff;
+  --color-ink: #0b0b0c;
+  --color-ink-soft: #3f3f46;
+  --color-line: #b8b6b2;
+
+  --color-now: #1a49c4;
+  --color-now-ink: #ffffff;
+  --color-done: #146c35;
+  --color-alert: #a81c1c;
+
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+html {
+  /* 17px base. The phone default of 16 is a desktop number that survived. */
+  font-size: 17px;
+  /* Stops iOS Safari inflating text in landscape, which breaks the layout. */
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background: var(--color-ground);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  /* Installed to the home screen the app fills the display, including the
+   * area behind the notch and the home indicator. Without these the bottom
+   * action button in phase 4 sits under the indicator and is unpressable. */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+    env(safe-area-inset-bottom) env(safe-area-inset-left);
+  /* Nothing here is a document. Long-press-to-select on a job row is only
+   * ever an accident, and it blocks the tap that was meant. */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Tap targets get a visible, immediate press state. On a phone with no hover
+ * there is no other confirmation that a tap registered, and a technician who
+ * is not sure will tap again -- which, once phase 5 lands, is a duplicate
+ * status event. */
+@media (hover: none) {
+  [data-tappable]:active {
+    filter: brightness(0.93);
+  }
+}

@@ -1,0 +1,41 @@
+# --- API ---
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+pydantic-settings==2.7.1
+
+# Windows has no system timezone database; zoneinfo falls back to this
+# package. Without it ZoneInfo("Asia/Kuala_Lumpur") raises on Windows, so
+# tests run outside the container fail while the container passes.
+tzdata==2024.2
+
+# --- Database ---
+sqlalchemy[asyncio]==2.0.36
+asyncpg==0.30.0
+geoalchemy2[shapely]==0.16.0
+alembic==1.14.0
+
+# --- Routing (phase 3) ---
+# Async HTTP client for the OSRM Table API. The spec names no HTTP library;
+# httpx is the standard async choice in a FastAPI codebase, and stdlib urllib
+# is blocking, which would stall the event loop on every matrix fetch.
+httpx==0.28.1
+
+# --- Solver (phase 4) ---
+# CP-SAT. Note this pulls in protobuf and numpy as transitive dependencies.
+ortools==9.15.6755
+
+# --- Worker (phase 8) ---
+celery==5.4.0
+redis==5.2.1
+
+# --- Tests ---
+pytest==8.3.4
+
+# --- LLM for natural-language dispatch (phase 13) ---
+# DeepSeek's API is OpenAI-compatible, so the official openai client talks to
+# it by pointing base_url at api.deepseek.com. Using the vendor client rather
+# than raw httpx buys typed errors, retry/backoff and timeout handling that
+# would otherwise be hand-rolled here. Ollama stays on httpx -- its API is not
+# OpenAI-shaped and it needs no credential.
+openai==1.59.6
