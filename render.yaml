@@ -1,0 +1,72 @@
+# Render Blueprint for the demo API.
+#
+# Render's free web service is 512MB of RAM and 0.1 CPU, and it sleeps after
+# 15 minutes with no traffic. Measured on this image: 122MB idle, 237MB at its
+# worst during a two-worker solve, and about 16 seconds from cold to serving.
+# Memory is not the constraint here; the CPU is, which is why SOLVER_WORKERS
+# and the console's solve limit are set the way they are.
+#
+# The database is deliberately NOT declared here. Render's own free Postgres
+# expires 30 days after creation, which would quietly kill the demo a month
+# after it was set up. Neon's free tier is permanent and has PostGIS, so
+# DATABASE_URL points there instead.
+#
+# To use: Render dashboard -> New -> Blueprint -> pick this repository.
+# The three `sync: false` values are prompted for at deploy time and never
+# stored in this file.
+
+services:
+  - type: web
+    name: waypoint-demo-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    region: singapore
+    healthCheckPath: /health
+
+    envVars:
+      # --- Secrets: prompted at deploy time, never committed ---------------
+      # postgresql+asyncpg://USER:PASS@HOST/DB?ssl=require
+      # Both edits matter: the +asyncpg scheme selects the driver, and asyncpg
+      # spells the TLS option `ssl=require` rather than Neon's `sslmode`.
+      - key: DATABASE_URL
+        sync: false
+
+      # Required, not optional. CORS_ORIGINS below names non-local origins,
+      # which flips Settings.dispatch_auth_required to True -- without a token
+      # every dispatcher route answers 503 by design rather than serving an
+      # open console to the internet.
+      - key: DISPATCH_TOKEN
+        sync: false
+
+      # A reusable technician sign-in code, so the PWA is not a locked door
+      # with no dispatcher to ask. Demo only.
+      - key: DEMO_ACCESS_CODE
+        sync: false
+
+      # --- Routing: no OSRM in this deployment -----------------------------
+      # The frozen matrix ships inside the image. An uncovered location raises
+      # UnroutableError and returns 503 rather than quietly substituting a
+      # haversine estimate, which would make TravelMatrix.source a lie.
+      - key: ROUTING_PROVIDER
+        value: frozen
+      - key: FROZEN_MATRIX_PATH
+        value: /app/data/frozen-matrix.json
+
+      # --- Solver ----------------------------------------------------------
+      # Two workers, not four. At 0.1 CPU the workers contend rather than
+      # help, and a 40-job demo day does not need them.
+      - key: SOLVER_WORKERS
+        value: "2"
+
+      # --- The rest --------------------------------------------------------
+      - key: TIMEZONE
+        value: Asia/Kuala_Lumpur
+      - key: LOG_LEVEL
+        value: INFO
+
+      # The two Vercel frontends, exactly. Anything not listed here is
+      # rejected by CORS, and adding an origin is what makes DISPATCH_TOKEN
+      # mandatory above.
+      - key: CORS_ORIGINS
+        value: https://waypoint-console.vercel.app,https://waypoint-technician.vercel.app

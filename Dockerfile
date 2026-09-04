@@ -31,4 +31,9 @@ EXPOSE 8000
 # Production shape: no --reload. The dev loop gets --reload from the compose
 # file instead, alongside the bind mounts that make it useful -- an image that
 # watches for source changes it can never receive is just a slower image.
-CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+#
+# Shell form, and $PORT rather than a literal, because most container hosts
+# assign the port and expect the process to bind whatever they set. Render is
+# one. Unset -- which is the case under compose -- falls back to 8000, so the
+# local stack is unchanged.
+CMD ["sh", "-c", "uvicorn api.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
