@@ -12,6 +12,10 @@ const config: NextConfig = {
     // SW and Next's hot reload fight, and the SW wins in the most confusing
     // way possible. Set to "1" to test installability without a prod build.
     NEXT_PUBLIC_ENABLE_SW: process.env.NEXT_PUBLIC_ENABLE_SW ?? "",
+    // A reusable sign-in code, shown on the login screen so a public demo is
+    // not a locked door. Must match DEMO_ACCESS_CODE on the API, and must be
+    // empty for any build a real technician will use.
+    NEXT_PUBLIC_DEMO_CODE: process.env.NEXT_PUBLIC_DEMO_CODE ?? "",
   },
 };
 

@@ -16,6 +16,11 @@ import { getToken, saveSession } from "@/lib/session";
 // the difference between "you typed it wrong" and "you are in a basement" is
 // the difference between trying again and walking outside.
 
+// Set only on a public demo build, where there is no dispatcher to ask for a
+// code. Empty everywhere else, and the sign-in screen is then exactly what a
+// technician has always seen.
+const DEMO_CODE = process.env.NEXT_PUBLIC_DEMO_CODE ?? "";
+
 /** Insert the dash as they type: 8 characters shown as XXXX-XXXX. */
 function format(raw: string): string {
   const clean = raw.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8);
@@ -125,9 +130,39 @@ export default function LoginPage() {
         </button>
       </form>
 
-      <p className="mt-6 text-[0.95rem] text-ink-soft">
-        No code? Ask dispatch to issue one.
-      </p>
+      {DEMO_CODE ? (
+        // Only rendered when this build was given a demo code. A real
+        // deployment sets nothing and this whole block does not exist, so the
+        // screen a technician sees is unchanged.
+        <div className="mt-6 rounded-xl border border-dashed border-line p-4">
+          <p className="font-mono text-[0.7rem] font-semibold uppercase tracking-[0.14em] text-ink-soft">
+            Demo
+          </p>
+          <p className="mt-2 text-[0.95rem] text-ink-soft">
+            There is no dispatcher to ask on a public demo, so here is a code
+            that always works.
+          </p>
+          <button
+            data-tappable
+            type="button"
+            onClick={() => {
+              setCode(format(DEMO_CODE));
+              setError(null);
+              inputRef.current?.focus();
+            }}
+            className="mt-3 min-h-[3rem] w-full rounded-lg border-2 border-now bg-paper font-mono text-[1.15rem] font-bold tracking-[0.12em] tabular-nums text-ink"
+          >
+            {format(DEMO_CODE)}
+          </button>
+          <p className="mt-2 text-[0.85rem] text-ink-soft">
+            Tap to fill it in, then Sign in.
+          </p>
+        </div>
+      ) : (
+        <p className="mt-6 text-[0.95rem] text-ink-soft">
+          No code? Ask dispatch to issue one.
+        </p>
+      )}
     </main>
   );
 }

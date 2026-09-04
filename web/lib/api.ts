@@ -192,26 +192,65 @@ export class LockedError extends Error {
   }
 }
 
+/**
+ * Thrown when the API could not be reached at all.
+ *
+ * `fetch` rejects with a bare TypeError for DNS failure, a refused connection,
+ * a CORS rejection and a dropped network alike, and a TypeError surfaced to a
+ * user says nothing. Naming the case here is what lets the console tell
+ * "the server is not answering" apart from "this day has no schedule" -- two
+ * situations with completely different next steps that otherwise arrive at the
+ * catch block indistinguishable.
+ */
+export class UnreachableError extends Error {
+  constructor(readonly cause_: unknown) {
+    super("Could not reach the API.");
+    this.name = "UnreachableError";
+  }
+}
+
+/** Thrown when the travel matrix cannot cover the locations asked about. */
+export class UnroutableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "UnroutableError";
+  }
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getDispatchToken();
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...init,
-    headers: {
-      "content-type": "application/json",
-      // Sent even when empty is pointless, so it is omitted -- and an API with
-      // no token configured ignores it either way.
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(init?.headers ?? {}),
-    },
-    cache: "no-store",
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      ...init,
+      headers: {
+        "content-type": "application/json",
+        // Sent even when empty is pointless, so it is omitted -- and an API with
+        // no token configured ignores it either way.
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(init?.headers ?? {}),
+      },
+      cache: "no-store",
+    });
+  } catch (err) {
+    throw new UnreachableError(err);
+  }
   if (!res.ok) {
     let detail = res.statusText;
+    let errorCode: string | undefined;
     try {
       const body = await res.json();
       detail = body.detail ?? JSON.stringify(body);
+      errorCode = body.error;
     } catch {
       /* keep statusText */
+    }
+    // A frozen-matrix deployment answers 503 for a day it has no road times
+    // for, which is emphatically NOT "the console is locked" -- checked first
+    // because it shares a status code with the case below and would otherwise
+    // send someone to an unlock screen over a routing problem.
+    if (res.status === 503 && errorCode === "unroutable") {
+      throw new UnroutableError(detail);
     }
     // 401 means the token is missing or wrong; 503 means the API is exposed
     // beyond localhost with none configured at all. Both are "you cannot use

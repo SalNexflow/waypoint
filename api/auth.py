@@ -249,6 +249,44 @@ async def redeem_code(session: AsyncSession, raw_code: str) -> tuple[str, Techni
 
     now = _now()
 
+    # --- The public demo's way in -------------------------------------------
+    #
+    # A real access code is single-use by design: dispatch reads it to one
+    # technician, they redeem it, it is spent. That is right for the product
+    # and useless for a public demo, where the code has to work for the
+    # hundredth visitor as well as the first -- and where nobody has a
+    # dispatcher to ask.
+    #
+    # So DEMO_ACCESS_CODE, when set, is a code that is never consumed. It
+    # bypasses the table entirely rather than seeding a row with a distant
+    # expiry, because a row that is redeemable forever is exactly the thing
+    # the single-use path exists to prevent, and it would be one careless
+    # export away from a production database.
+    #
+    # Unset by default, and it must stay unset anywhere with real customer
+    # data on it: anyone holding this string gets a technician's session.
+    settings = get_settings()
+    if settings.demo_access_code and normalised == normalise_code(
+        settings.demo_access_code
+    ):
+        technician = (
+            await session.execute(select(Technician).order_by(Technician.id).limit(1))
+        ).scalar_one_or_none()
+        if technician is None:
+            raise InvalidCode
+        plaintext = new_token()
+        session.add(
+            TechnicianToken(
+                technician_id=technician.id,
+                token_hash=hash_secret(plaintext),
+                # No access_code_id: no code was spent. The column is nullable
+                # precisely so a token can outlive the code that made it, and
+                # here there was never one to point at.
+                access_code_id=None,
+            )
+        )
+        return plaintext, technician
+
     # Mark it spent CONDITIONALLY, and let the database decide the winner.
     #
     # The obvious version -- SELECT, check redeemed_at, then UPDATE -- has a

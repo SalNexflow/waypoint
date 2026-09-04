@@ -75,6 +75,9 @@ services:
       # on a real phone -- the phone is a different origin from localhost.
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000,http://localhost:3002,http://127.0.0.1:3002}
       ACCESS_CODE_TTL_HOURS: ${ACCESS_CODE_TTL_HOURS:-24}
+      # A reusable technician sign-in code. Empty here and empty in production;
+      # set only on a public demo, where there is no dispatcher to ask.
+      DEMO_ACCESS_CODE: ${DEMO_ACCESS_CODE:-}
       # Shared secret for every dispatcher-side route. Empty is allowed
       # only while CORS_ORIGINS trusts nothing but localhost.
       DISPATCH_TOKEN: ${DISPATCH_TOKEN:-}

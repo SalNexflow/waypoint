@@ -58,6 +58,17 @@ class Settings(BaseSettings):
     # stops working.
     access_code_ttl_hours: int = 24
 
+    # --- Public demo sign-in ------------------------------------------------
+    # A reusable access code for a deployment anyone can visit. Real codes are
+    # single-use and issued by a dispatcher, which is correct for the product
+    # and leaves a public demo as a locked door with nobody to ask.
+    #
+    # MUST stay empty anywhere holding real data: whoever knows this string
+    # gets a technician session. It is deliberately not derived from anything,
+    # so it cannot be guessed from the seed, and deliberately has no default,
+    # so a demo cannot acquire one by accident.
+    demo_access_code: str = ""
+
     # --- Completion photos (field phase 7) ----------------------------------
     # A directory on a mounted volume, not object storage. There is no S3 or
     # MinIO in this stack and the spec names none, so adding a container and a

@@ -8,6 +8,8 @@ import {
   ReassignPreview,
   SolveMetrics,
   SolveResult,
+  UnreachableError,
+  UnroutableError,
   api,
 } from "@/lib/api";
 import Unlock from "@/components/Unlock";
@@ -67,16 +69,27 @@ export default function Page() {
       });
       setError(null);
     } catch (e) {
-      // A locked API is not "no schedule for this day". Showing that would
-      // send a dispatcher off to re-seed a database that is perfectly fine.
+      // These are three different situations with three different next steps,
+      // and they all arrive here. Telling them apart is the whole job of this
+      // block: the old version reported every one of them as "no schedule for
+      // this day, seed a day and press Solve", which sent people off to re-seed
+      // a database that was perfectly fine while the API was simply not up.
       if (e instanceof LockedError) {
         setLocked(e);
         return;
       }
       setResult(null);
-      setError(
-        `No solved schedule for ${day}. Seed a day and press Solve. (${e})`,
-      );
+      if (e instanceof UnreachableError) {
+        setError(
+          "Can't reach the API. Nothing is wrong with the schedule — the " +
+            "server is not answering. If this is the hosted demo it may be " +
+            "waking up; give it a minute and press Refresh.",
+        );
+      } else if (e instanceof UnroutableError) {
+        setError(`This day cannot be scheduled: ${e.message}`);
+      } else {
+        setError(`No solved schedule for ${day}. Press Solve to build one.`);
+      }
     }
   }, [day]);
 
@@ -88,7 +101,12 @@ export default function Page() {
     setSolving(true);
     setError(null);
     try {
-      const run = await api.solve(day, 30, 8);
+      // 60 seconds, not 30. On a constrained free-tier CPU a 30-second budget
+      // sits close to the point where CP-SAT returns nothing at all and the API
+      // hands back the greedy warm-start instead -- which is the exact baseline
+      // this project exists to beat. 60s clears that margin comfortably; on a
+      // full CPU it simply finishes early.
+      const run = await api.solve(day, 60, 8);
       // Poll rather than hold the request open: a solve takes tens of seconds
       // and the run row is the authoritative status.
       for (let i = 0; i < 120; i++) {
@@ -183,6 +201,23 @@ export default function Page() {
         <p className="banner error">
           The independent checker rejected this schedule:{" "}
           {result.metrics.violations.slice(0, 2).join("; ")}
+        </p>
+      )}
+
+      {/* The solver produced nothing and this is the greedy warm-start.
+          It was already reported in the status strip, but as one red word
+          among six columns with the explanation hidden in a tooltip -- which
+          is not enough for the one state where the plan on screen is NOT the
+          product. Greedy nearest-neighbour is the baseline this project exists
+          to beat; showing its output unlabelled is the single most misleading
+          thing this console can do. */}
+      {result && result.metrics.fell_back && (
+        <p className="banner warn">
+          <strong>This is not a solved schedule.</strong> The solver found
+          nothing within its {(result.metrics.solver_wall_ms / 1000).toFixed(0)}
+          s limit, so this is the greedy nearest-neighbour fallback — valid and
+          workable, but the baseline the solver is meant to beat, not its
+          result. Raise the time limit and solve again.
         </p>
       )}
 

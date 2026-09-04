@@ -59,6 +59,10 @@ input[type="text"], input[type="date"], .dispatch-input input {
 }
 .banner.error { background: #fef2f2; color: #991b1b; }
 .banner.preview { background: #eff6ff; color: #1e3a8a; }
+/* Amber, not red: the greedy fallback is a workable plan, not a failure. It
+   needs to stop someone reading it as the solver's answer, not alarm them. */
+.banner.warn { background: #fffbeb; color: #854d0e; }
+.banner.warn strong { color: #713f12; }
 
 /* Who to phone if this move is applied. Listed, not just counted -- a
    dispatcher cannot judge "3 customer calls" without knowing which three. */
