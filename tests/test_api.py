@@ -13,12 +13,37 @@ from __future__ import annotations
 
 import os
 import time
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import httpx
 import pytest
 
 BASE = os.environ.get("WAYPOINT_API", "http://localhost:8000")
-DAY = "2026-09-03"
+
+# The dispatch day these tests work on: TODAY, in the timezone the dispatch
+# day is defined in -- not a fixed date.
+#
+# This is load-bearing, not tidiness. Several tests here report status events
+# timestamped on this day, and api/field_status.py clamps any client timestamp
+# more than MAX_BACKDATE (24 hours) before receipt, flagging the report
+# untrusted. That is correct behaviour -- a phone claiming to have finished a
+# job two days ago has a broken clock -- but it means a hardcoded date works
+# for one day and then quietly stops.
+#
+# The symptom when it does is nowhere near the cause: `drift_by_technician`
+# skips untrusted reports, so the assertion that fails is an empty drift map
+# in a re-optimisation test, which reads as a solver bug. It cost an afternoon
+# once; hence the length of this comment.
+#
+# Asia/Kuala_Lumpur specifically, and not the machine's zone, because that is
+# what the API means by a day -- a test running in UTC after 16:00 local would
+# otherwise ask for yesterday.
+DAY = (
+    datetime.now(ZoneInfo(os.environ.get("WAYPOINT_TZ", "Asia/Kuala_Lumpur")))
+    .date()
+    .isoformat()
+)
 
 # The dispatcher-side shared secret, when the stack under test has one.
 #
@@ -39,9 +64,37 @@ def _up() -> bool:
         return False
 
 
-pytestmark = pytest.mark.skipif(
-    not _up(), reason=f"API not reachable at {BASE}"
-)
+def _seeded() -> bool:
+    """Does the database hold jobs for today?
+
+    Checked once, up front, because the alternative is thirty tests failing on
+    assertions about empty lists. The seeded window is finite -- it is whatever
+    days somebody last generated -- so "today" eventually walks off the end of
+    it, and that should read as "seed a day" rather than as a broken API.
+    """
+    try:
+        r = httpx.get(
+            f"{BASE}/jobs", params={"day": DAY}, headers=DISPATCH_AUTH, timeout=10
+        )
+        return r.status_code == 200 and len(r.json()) > 0
+    except Exception:  # noqa: BLE001
+        return False
+
+
+if not _up():
+    pytestmark = pytest.mark.skip(reason=f"API not reachable at {BASE}")
+elif not _seeded():
+    pytestmark = pytest.mark.skip(
+        reason=(
+            f"no jobs on {DAY}. These tests run against today; seed it with\n"
+            f"    docker compose exec api python -m data.seed "
+            f"--jobs 40 --technicians 8 --day {DAY} --seed 42 --jobs-only\n"
+            "(drop --jobs-only for a first seed, and see DEMO-DEPLOY.md if the "
+            "frozen matrix is in use -- new coordinates need a re-freeze)"
+        )
+    )
+else:
+    pytestmark = []
 
 
 @pytest.fixture(scope="module")

@@ -1,171 +1,120 @@
 # Deploying the demo
 
-The cut-down deployment: a frozen travel matrix instead of a live OSRM, inline
-solving instead of Celery, and therefore no Redis and no routing engine. About
-$7/month, against roughly $70 for the full stack.
+**There is no hosted instance, on purpose.** The full system runs locally with
+`docker compose up` — see the README. This file is here for the day that
+changes, and records what was measured rather than what was assumed.
 
-What is already done and what is not:
+Only the marketing site is deployed:
+<https://waypoint-field.vercel.app>.
+
+---
+
+## Why nothing else is hosted
+
+The expensive piece is OSRM: a 673 MB routing graph held resident in memory,
+served from a persistent volume. Nothing free will run that, and it is not
+worth paying for so passers-by can click a button.
+
+The rest of the stack *does* fit a free tier, and `render.yaml` is a working
+blueprint for it. What stops it being obviously worth doing is measured below.
+
+## What was measured
+
+On the production image under a container constrained to exactly Render's free
+web-service limits — `--memory 512m --cpus 0.1` — against the real frozen
+matrix and the real demo database:
 
 | | |
 |---|---|
-| Marketing site | **live** — https://waypoint-field.vercel.app |
-| Dispatcher console | **live** — https://waypoint-console.vercel.app |
-| Technician PWA | **live** — https://waypoint-technician.vercel.app |
-| API | **not deployed** — needs a Fly.io account |
-| Database | **not deployed** — needs a Neon account |
+| Cold boot to first healthy response | 16 s |
+| Loading the 82,656-pair frozen matrix | 1.3 s |
+| Memory, idle | 122 MB |
+| Memory, peak during a solve | 237 MB — 46% of the cap |
+| Serving a stored schedule (8 routes) | 1.6 s |
 
-Both frontends are already built against `https://waypoint-dispatch-demo.fly.dev`.
-They render, and every request fails, until the API below exists at that
-hostname. **If you use a different Fly app name, the frontends must be
-redeployed**, because `NEXT_PUBLIC_API_BASE` is baked in at build time.
+Memory is not the constraint. The 0.1 CPU is, and it costs about 25×:
 
----
+| Solve time limit | Result at 0.1 CPU |
+|---|---|
+| 5 s | **greedy fallback** — CP-SAT returns `UNKNOWN`, 575 travel min |
+| 30 s | 574 travel min |
+| 60 s | 525 travel min |
+| 120 s | 487 travel min |
+| *5 s, unconstrained CPU* | *490 travel min* |
 
-## The one thing that will bite you
+The five-second row is the one that matters. Below roughly thirty seconds the
+solver finds nothing and the API returns the greedy warm-start — the exact
+baseline this project exists to beat. It is flagged (`fell_back: true`, and a
+banner in the console since this was measured), but a demo whose headline
+result is the baseline is worse than no demo. The console asks for 60 s.
 
-The frozen matrix was built from **road-snapped** coordinates. Snapping needs
-OSRM, which this deployment does not have. So the demo database cannot be
-seeded with `python -m data.seed` on the deployed machine — the generator would
-produce raw coordinates, only about half of which land on a point the frozen
-matrix knows, and every solve would fail with `UnroutableError`.
+## The free path, if you want it
 
-Restore `data/demo/demo-data.sql` instead. It is a `pg_dump` of the seeded,
-snapped database: 8 technicians, 3 depots, 320 jobs across 2026-09-03 to
-2026-09-10, and **the eight solved schedules that go with them**. That is what
-makes the coordinates match the matrix exactly.
+Render's free web service and Neon's free Postgres, neither of which asks for
+a card. **Not** Render's own Postgres: free Render databases expire 30 days
+after creation, which would kill the demo a month after setup.
 
-The stored solve runs matter more than they look. The console's first request
-is `/solve/day/{day}/latest`, which reads a saved run -- it does not solve.
-With the runs in the dump the console opens on a complete schedule in about a
-second; without them it opens on "No solved schedule for ...", and somebody has
-to press Solve and wait. On a slow free-tier CPU that is the difference between
-a demo that works and one that looks broken.
+1. **Neon** — create a project. Take the connection string and make two edits
+   before giving it to anything: `postgresql://` → `postgresql+asyncpg://`,
+   and `?sslmode=require` → `?ssl=require`. The scheme selects the driver;
+   asyncpg does not understand `sslmode` and fails at the first query with an
+   error that mentions neither problem.
 
----
+2. **Render** — New → Blueprint → this repository. `render.yaml` configures
+   everything except three secrets, which it prompts for:
+   `DATABASE_URL`, `DISPATCH_TOKEN`, `DEMO_ACCESS_CODE`.
 
-## 1. Database (Neon)
+   `DISPATCH_TOKEN` is not optional. `render.yaml` names two non-local origins
+   in `CORS_ORIGINS`, which flips `Settings.dispatch_auth_required` to `True`,
+   and without a token every dispatcher route answers 503 — the API refusing
+   to serve an open console to the internet rather than logging a warning.
 
-Create a project at https://neon.tech — the free tier is enough. Then, in the
-Neon SQL editor:
+3. **Schema and data**, from a machine with this repo and Docker:
 
-```sql
-CREATE EXTENSION IF NOT EXISTS postgis;
-```
+   ```bash
+   docker compose run --rm -e DATABASE_URL='postgresql+asyncpg://...?ssl=require' \
+       api alembic upgrade head
 
-Neon hands you a connection string for `psql`. This app talks **asyncpg**, so
-two edits are needed before it will work:
+   docker run --rm -i postgis/postgis:16-3.4 \
+       psql 'postgresql://...?sslmode=require' -q < data/demo/demo-data.sql
+   ```
 
-```
-# What Neon gives you:
-postgresql://user:pass@ep-xxx.ap-southeast-1.aws.neon.tech/waypoint?sslmode=require
+   Note the second takes the plain `postgresql://` `sslmode=require` form —
+   that is `psql`, not the app. The migration creates the PostGIS extension
+   itself; if Neon refuses, run `CREATE EXTENSION IF NOT EXISTS postgis;` in
+   its SQL editor first.
 
-# What this app needs:
-postgresql+asyncpg://user:pass@ep-xxx.ap-southeast-1.aws.neon.tech/waypoint?ssl=require
-#         ^^^^^^^^                                                          ^^^
-```
-
-`postgresql+asyncpg://` selects the driver; asyncpg spells the TLS option
-`ssl=require` and does not understand `sslmode`. Passing Neon's string through
-unedited fails at the first query with a driver error that does not mention
-either problem.
-
-## 2. API (Fly.io)
-
-`flyctl` is already installed at `~/.fly/bin/flyctl`.
-
-```bash
-export PATH="$HOME/.fly/bin:$PATH"
-flyctl auth login                      # opens a browser
-
-cd /path/to/Waypoint
-flyctl launch --no-deploy --copy-config --name waypoint-dispatch-demo --region sin
-```
-
-Set both secrets **before** the first deploy:
-
-```bash
-flyctl secrets set \
-  DATABASE_URL='postgresql+asyncpg://user:pass@ep-xxx.../waypoint?ssl=require' \
-  DISPATCH_TOKEN='<the token from the deploy notes>'
-```
-
-`DISPATCH_TOKEN` is not optional here. `fly.toml` names two Vercel origins in
-`CORS_ORIGINS`, and `Settings.dispatch_auth_required` flips to `True` the moment
-any non-local origin is trusted. Without a token the dispatcher routes answer
-**503**, by design — the API refuses to serve an open console to the internet
-rather than logging a warning nobody reads.
-
-```bash
-flyctl deploy
-```
-
-## 3. Schema and data
-
-```bash
-flyctl ssh console -C "alembic upgrade head"
-```
-
-Then restore the demo data. `psql` is not in the API image, so pipe it from
-anywhere that has one — including the local compose stack:
-
-```bash
-docker compose exec -T db psql '<the psql-form Neon URL>' -q -f - < data/demo/demo-data.sql
-```
-
-Note that is the **`postgresql://` `sslmode=require`** form, not the asyncpg
-one — this is `psql`, not the app.
-
-## 4. Verify
-
-```bash
-curl -s https://waypoint-dispatch-demo.fly.dev/health
-curl -s https://waypoint-dispatch-demo.fly.dev/health/routing
-```
-
-`/health/routing` should report:
-
-```json
-{
-  "status": "ok",
-  "configured": "frozen",
-  "source": "osrm",
-  "reportable": true,
-  "frozen": { "pairs": 82656, "graph": "klang-valley" }
-}
-```
-
-`source: "osrm"` with no OSRM running is correct and not a bug: the bundle
-records where its numbers came from, and they came from OSRM. Freeze a
-haversine matrix instead and this reports `haversine` with `reportable: false`.
-
-Dispatcher routes should 401/403 without a token and answer with it:
-
-```bash
-curl -s -o /dev/null -w '%{http_code}\n' https://waypoint-dispatch-demo.fly.dev/jobs?day=2026-09-04
-curl -s -H "Authorization: Bearer $DISPATCH_TOKEN" \
-  'https://waypoint-dispatch-demo.fly.dev/jobs?day=2026-09-04' | head -c 200
-```
-
-## 5. Unlock the console
-
-Open https://waypoint-console.vercel.app. It will ask for the dispatch token —
-paste the same value set as the Fly secret. It is kept in `localStorage` and
-sent as a bearer token on every request; it is never baked into the build, so
-rotating it means setting a new Fly secret and pasting the new value once.
-
-For the technician PWA, mint an access code from the console's access screen
-and redeem it at https://waypoint-technician.vercel.app.
+4. **Frontends** — `web/` and `mobile/` deploy to Vercel unchanged, but
+   `NEXT_PUBLIC_API_BASE` is baked in at build time, so it has to be set to the
+   Render URL *at build*, not after. `mobile/` also takes
+   `NEXT_PUBLIC_DEMO_CODE`, which must match `DEMO_ACCESS_CODE` on the API.
 
 ---
 
-## Refreshing the demo
+## The two things that will bite you
 
-The seeded window runs **2026-09-03 to 2026-09-10**. The console opens on
-today in `Asia/Kuala_Lumpur`, so after 2026-09-10 it opens on a day with no
-jobs — not broken, just empty.
+**Restore the database; never re-seed it.** The frozen matrix was built from
+road-**snapped** coordinates, and snapping needs OSRM, which this deployment
+does not have. Seeding on the deployed machine produces raw coordinates, of
+which only about half land on a point the matrix knows — measured: 20 of 40 —
+and every solve then fails with `UnroutableError`. `data/demo/demo-data.sql` is
+a `pg_dump` of the seeded, snapped database: 8 technicians, 3 depots, 320 jobs
+across 2026-09-03 to 2026-09-10, and the solved schedules for seven of those
+days.
 
-Extending it means regenerating both halves together, because the matrix and
-the coordinates have to agree:
+Those stored runs matter more than they look. The console's first request is
+`/solve/day/{day}/latest`, which reads a saved run rather than solving, so the
+page opens on a complete schedule in about a second. Without them it opens on
+"No solved schedule for …" and somebody has to press Solve and wait.
+
+2026-09-03 deliberately has **no** stored run: `tests/test_api.py` works on
+that day, and its `run_id` fixture would adopt a shipped schedule instead of
+building its own.
+
+**Re-seeding and re-freezing go together, in that order.** The seeded window
+ends 2026-09-10; after that the console opens on a day with no jobs. Extending
+it means regenerating both halves, because the coordinates and the matrix have
+to agree:
 
 ```bash
 docker compose --profile osrm up -d osrm            # the graph is only needed here
@@ -176,11 +125,9 @@ docker compose exec -T db pg_dump -U waypoint -d waypoint --data-only --no-owner
     --no-privileges --column-inserts \
     -t depots -t technicians -t jobs -t solve_runs -t assignments \
     > data/demo/demo-data.sql
-flyctl deploy                                        # ships the new matrix
 ```
 
-Re-seeding and forgetting to re-freeze is the failure this ordering exists to
-prevent: the new jobs would be at coordinates the matrix has never seen, and
-every solve on those days would 503 with `UnroutableError` naming them. That is
-the intended behaviour — loud and specific rather than quietly approximated —
-but it is still an outage, so run the two commands together.
+Re-seeding without re-freezing puts jobs at coordinates the matrix has never
+seen, and every solve on those days 503s with `UnroutableError` naming them.
+That is the intended behaviour — loud and specific rather than quietly
+approximated — but it is still an outage.
