@@ -57,7 +57,7 @@ export default function CTA() {
                 There is no hosted demo. The whole system — solver, routing
                 engine, dispatcher console and technician app — runs locally
                 with{" "}
-                <code className="rounded border border-line bg-sunken px-1.5 py-0.5 font-mono text-[13px] text-ink">
+                <code className="whitespace-nowrap rounded border border-line bg-sunken px-1.5 py-0.5 font-mono text-[13px] text-ink">
                   docker compose up
                 </code>
                 , on real Klang Valley road times rather than a canned
