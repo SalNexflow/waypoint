@@ -30,8 +30,16 @@ produce raw coordinates, only about half of which land on a point the frozen
 matrix knows, and every solve would fail with `UnroutableError`.
 
 Restore `data/demo/demo-data.sql` instead. It is a `pg_dump` of the seeded,
-snapped database: 8 technicians, 3 depots, and 320 jobs across 2026-09-03 to
-2026-09-10. That is what makes the coordinates match the matrix exactly.
+snapped database: 8 technicians, 3 depots, 320 jobs across 2026-09-03 to
+2026-09-10, and **the eight solved schedules that go with them**. That is what
+makes the coordinates match the matrix exactly.
+
+The stored solve runs matter more than they look. The console's first request
+is `/solve/day/{day}/latest`, which reads a saved run -- it does not solve.
+With the runs in the dump the console opens on a complete schedule in about a
+second; without them it opens on "No solved schedule for ...", and somebody has
+to press Solve and wait. On a slow free-tier CPU that is the difference between
+a demo that works and one that looks broken.
 
 ---
 
