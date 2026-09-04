@@ -173,7 +173,8 @@ docker compose exec api python -m data.seed --jobs 40 --technicians 8 \
     --day 2026-09-11 --seed 7 --jobs-only
 docker compose exec api python -m scripts.freeze_matrix --out data/frozen-matrix.json
 docker compose exec -T db pg_dump -U waypoint -d waypoint --data-only --no-owner \
-    --no-privileges --column-inserts -t depots -t technicians -t jobs \
+    --no-privileges --column-inserts \
+    -t depots -t technicians -t jobs -t solve_runs -t assignments \
     > data/demo/demo-data.sql
 flyctl deploy                                        # ships the new matrix
 ```
